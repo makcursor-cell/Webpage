@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Timing / Power Dashboard</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        :root{
+            --primary:#2c7be5;
+            --primary-dark:#1a5db5;
+            --bg:#f8f9fa;
+            --card:#ffffff;
+            --muted:#888;
+            --radius:8px;
+            --gap:15px;
+            --max-width:900px;
+        }
+        html,body{height:100%}
+        body { font-family: 'Segoe UI', system-ui, -apple-system, "Helvetica Neue", Arial; margin: 0; background: var(--bg); color:#222; padding:24px; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+        .container { background: var(--card); padding: 24px; border-radius: var(--radius); max-width: var(--max-width); margin: auto; box-shadow: 0 6px 30px rgba(0,0,0,0.06); }
+        header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px}
+        h1{font-size:1.25rem;margin:0}
+        .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+        .links-row { display: flex; gap: var(--gap); margin-bottom: 10px; flex-wrap:wrap; }
+        .mode-btn { padding: 8px 14px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight:600; display:inline-flex; gap:8px; align-items:center; }
+        .mode-btn.inactive{ opacity:0.65; background:transparent; color:var(--primary); border:1px solid #d6e6ff; }
+        .mode-btn:focus{ outline:3px solid rgba(44,123,229,0.18) }
+        label{ font-weight:600; display:block; margin-bottom:6px; }
+        .row { display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+        input[type="text"], select, input[type="search"] { padding:10px; border-radius:6px; border:1px solid #ddd; width:100%; box-sizing:border-box; font-size:0.95rem; }
+        .two-col { display:grid; grid-template-columns: 1fr 140px; gap:12px; width:100%; align-items:center; }
+        button[type=submit] { background: var(--primary); color:white; border:none; padding:10px 18px; border-radius:6px; font-weight:700; cursor:pointer; }
+        button[type=submit]:hover{ background:var(--primary-dark) }
+        .muted { color:var(--muted); font-size:0.9rem }
+        .result-box { background: #e7f3ff; border: 1px solid #b6d4fe; padding: 16px; border-radius:8px; margin-top:20px; }
+        .small-btn { background:transparent;border:none;color:var(--primary);cursor:pointer;padding:6px;font-weight:600 }
+        .small-btn:hover{ text-decoration:underline }
+        /* loader overlay */
+        .overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.35); z-index:999; }
+        .spinner { width:56px;height:56px;border-radius:50%;border:6px solid rgba(255,255,255,0.18);border-top-color:white; animation:spin 1s linear infinite; box-shadow:0 6px 20px rgba(0,0,0,0.2) }
+        @keyframes spin{to{transform:rotate(360deg)}}
+        /* responsive */
+        @media (max-width:700px){
+            .two-col{ grid-template-columns: 1fr 110px; }
+            .container{ padding:16px }
+        }
+    </style>
+</head>
+<body>
+<div class="overlay" id="overlay" aria-hidden="true" aria-live="polite">
+    <div class="spinner" role="status" aria-label="Generating dashboard"></div>
+</div>
+
+<main class="container" role="main">
+    <header>
+        <h1>Timing / Power Dashboard</h1>
+        <div class="muted" id="statusHint">Select designs and run</div>
+    </header>
+
+    <form id="dashboardForm" method="post" onsubmit="return onSubmitForm(event);" novalidate>
+        <input type="hidden" name="mode" id="modeInput" value="timing" />
+
+        <div>
+            <label id="modeLabel"><b>Dashboard Type</b></label>
+            <div class="controls" role="tablist" aria-label="Dashboard type">
+                <button type="button" id="timingBtn" class="mode-btn" role="tab" aria-selected="true" onclick="setMode('timing')">⏱ Timing</button>
+                <button type="button" id="powerBtn" class="mode-btn inactive" role="tab" aria-selected="false" onclick="setMode('power')">🔌 Power</button>
+            </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <label for="designSearch"><b>Search & Navigate Designs</b></label>
+        <div class="row">
+            <input type="search" id="designSearch" placeholder="Search folders..." aria-label="Search designs" oninput="debouncedFilter()" />
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button type="button" class="small-btn" onclick="selectAllVisible(true)" title="Select visible designs">[+] Select Visible</button>
+                <button type="button" class="small-btn" onclick="selectAllVisible(false)" title="Deselect visible designs">[-] Deselect Visible</button>
+            </div>
+        </div>
+
+        <label for="designSelect"><b>Designs</b></label>
+        <div style="margin-bottom:8px" class="muted">Tip: you can Shift+click to select multiple. On mobile use the checkboxes view (see advanced options)</div>
+
+        <select name="designs" id="designSelect" multiple size="15" required aria-label="Select designs" style="width:100%;min-height:220px"></select>
+
+        <div style="height:10px"></div>
+
+        <div class="two-col">
+            <div>
+                <label for="die"><b>Die Name</b></label>
+                <input id="die" name="die" value="ESF" required />
+            </div>
+            <div style="display:flex;align-items:end;justify-content:flex-end;">
+                <button type="submit" id="runBtn">Run Dashboard</button>
+            </div>
+        </div>
+
+    </form>
+
+    {% if error_message %}
+        <div class="result-box" style="background:#fee;border-color:#fcc;" role="alert">
+            <h3 style="color:#c00;">❌ Error</h3>
+            <p>{{ error_message }}</p>
+        </div>
+    {% endif %}
+
+    {% if done %}
+        <div class="result-box" role="status" aria-live="polite">
+            <h3>✅ Generation Complete</h3>
+            {% if comparison %}
+                <div style="margin-bottom:8px">
+                    <a href="/files/comparison_dashboard.html" style="font-weight:bold;color:var(--primary)">📊 Open Comparison Dashboard</a>
+                </div>
+            {% endif %}
+            {% for design in generated %}
+                <div><a href="/files/{{ design }}.html">📂 Open Dashboard: {{ design }}</a></div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
+
+<script>
+/* ---- Data from template (unchanged) ---- */
+const designsTiming = {{ designs_timing|tojson }};
+const designsPower  = {{ designs_power|tojson }};
+
+/* ---- Accessibility + UX improvements ---- */
+const form = document.getElementById('dashboardForm');
+const selectEl = document.getElementById('designSelect');
+const searchInput = document.getElementById('designSearch');
+const modeInput = document.getElementById('modeInput');
+const overlay = document.getElementById('overlay');
+let debounceTimer = null;
+
+/* Populate select based on mode */
+function updateDesignList(mode){
+    selectEl.innerHTML = "";
+    const arr = (mode === "timing") ? designsTiming : designsPower;
+    // Keep previously selected values from localStorage
+    const saved = JSON.parse(localStorage.getItem('selectedDesigns') || '[]');
+    arr.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = "📂 " + d;
+        // restore selection if saved
+        if(saved.includes(d)) opt.selected = true;
+        selectEl.appendChild(opt);
+    });
+    // apply current filter if user typed something
+    filterDesigns(searchInput.value || "");
+}
+
+/* Mode switch with visual state and localStorage */
+function setMode(mode){
+    modeInput.value = mode;
+    localStorage.setItem('lastMode', mode);
+    const timingBtn = document.getElementById('timingBtn');
+    const powerBtn  = document.getElementById('powerBtn');
+    if(mode === 'timing'){
+        timingBtn.classList.remove('inactive'); timingBtn.setAttribute('aria-selected','true');
+        powerBtn.classList.add('inactive'); powerBtn.setAttribute('aria-selected','false');
+    } else {
+        powerBtn.classList.remove('inactive'); powerBtn.setAttribute('aria-selected','true');
+        timingBtn.classList.add('inactive'); timingBtn.setAttribute('aria-selected','false');
+    }
+    updateDesignList(mode);
+}
+
+/* Filter (debounced) */
+function filterDesigns(q){
+    const filter = (q || "").toLowerCase();
+    const options = selectEl.options;
+    for(let i=0;i<options.length;i++){
+        const visible = options[i].text.toLowerCase().includes(filter);
+        options[i].style.display = visible ? "" : "none";
+    }
+}
+function debouncedFilter(){
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(()=> filterDesigns(searchInput.value), 150);
+}
+
+/* Select/deselect only visible items */
+function selectAllVisible(flag){
+    const options = selectEl.options;
+    for(let i=0;i<options.length;i++){
+        if(options[i].style.display !== 'none') options[i].selected = flag;
+    }
+}
+
+/* Save selection to localStorage before submit and also periodically */
+function saveSelection(){
+    const selected = Array.from(selectEl.selectedOptions).map(o=>o.value);
+    localStorage.setItem('selectedDesigns', JSON.stringify(selected));
+}
+selectEl.addEventListener('change', saveSelection);
+
+/* Restore UI on load */
+window.addEventListener('load', () => {
+    const lastMode = localStorage.getItem('lastMode') || 'timing';
+    setMode(lastMode);
+    // restore search term
+    const ss = localStorage.getItem('searchTerm') || '';
+    searchInput.value = ss;
+    if(ss) filterDesigns(ss);
+    // persist search input to storage on change (but debounced)
+    let stimer;
+    searchInput.addEventListener('input', (e) => {
+        clearTimeout(stimer);
+        stimer = setTimeout(()=> localStorage.setItem('searchTerm', searchInput.value), 300);
+    });
+});
+
+/* Form submission: progressive enhancement preserved (POST), but show loader when JS present */
+function onSubmitForm(e){
+    // Basic client-side validation
+    const die = (document.getElementById('die').value || '').trim();
+    const selected = Array.from(selectEl.selectedOptions).map(o=>o.value);
+    if(!die || selected.length === 0){
+        alert("Please enter a Die name and select at least one design.");
+        return false; // prevent submission
+    }
+
+    // store selection before submit
+    saveSelection();
+
+    // If you want to use AJAX/fetch instead of full reload,
+    // replace the following with fetch() to the form action.
+    showOverlay(true);
+
+    // Allow form to submit normally (to preserve server-side rendering).
+    // If you prefer to do AJAX, call e.preventDefault() and send the request manually.
+    return true;
+}
+
+function showOverlay(yes){
+    overlay.style.display = yes ? 'flex' : 'none';
+    overlay.setAttribute('aria-hidden', !yes);
+}
+
+/* Make "Select All Visible" keyboard-friendly — already buttons */
+/* Add small enhancement: pressing Enter in search focuses select list */
+searchInput.addEventListener('keydown', (ev)=>{
+    if(ev.key === 'Enter'){ ev.preventDefault(); selectEl.focus(); }
+});
+</script>
+</body>
+</html>
+
