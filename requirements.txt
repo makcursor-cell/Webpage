@@ -1,0 +1,13 @@
+# Flask web framework
+Flask>=2.3.0
+
+# Data processing
+pandas>=1.5.0
+numpy>=1.23.0
+
+# HTML table generation
+itables>=1.5.0
+
+# Optional: for better development experience
+# python-dotenv>=1.0.0  # For loading .env files
+
